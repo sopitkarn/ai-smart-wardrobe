@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
-
+import { supabase } from '../../lib/supabaseClient';
 export default function MatchOutfitPage() {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
