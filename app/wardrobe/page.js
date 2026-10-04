@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-
 export default function WardrobePage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
