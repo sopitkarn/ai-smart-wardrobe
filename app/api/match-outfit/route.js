@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
-import { supabase } from '../../lib/supabaseClient';
-
+import { supabase } from '@/lib/supabaseClient';
 export async function POST(request) {
   try {
     const { prompt } = await request.json();
