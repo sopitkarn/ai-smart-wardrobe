@@ -9,7 +9,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'กรุณาระบุสถานการณ์หรือโจทย์การแต่งตัว' }, { status: 400 });
     }
 
-    // 1. ดึงข้อมูลเสื้อผ้าทั้งหมดจาก Supabase
+    // 1. ดึงข้อมูลเสื้อผ้าทั้งหมดจาก Supabase (ตาราง wardrobe_items)
     let items = [];
     if (supabase) {
       const { data, error } = await supabase.from('wardrobe_items').select('*');
@@ -22,7 +22,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'ไม่พบเสื้อผ้าในตู้ กรุณาเพิ่มเสื้อผ้าก่อนครับ' }, { status: 400 });
     }
 
-    // 2. เรียกใช้ Gemini API ผ่าน REST Fetch
+    // 2. ตรวจสอบ API Key
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY ใน Vercel' }, { status: 500 });
@@ -46,7 +46,7 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
 
 ข้อบังคับสำคัญ:
 1. คุณต้องเลือกเสื้อผ้าโดยใช้ ID ที่มีอยู่ในรายการข้างต้นเท่านั้น
-2. ตอบกลับเป็นรูปแบบ JSON เดียวเท่านั้น ไม่มีข้อความอื่นปน ดังนี้:
+2. ตอบกลับเป็นรูปแบบ JSON เดียวเท่านั้น ไม่มีข้อความ Markdown หรือโปรแกรมอื่นปน ดังนี้:
 {
   "top_id": 1,
   "bottom_id": 2,
@@ -55,7 +55,8 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
   "reasoning": "เหตุผลสั้นๆ ภาษาไทยประกอบการเลือกชุด"
 }`;
 
-    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    // ยิง API ไปยัง gemini-1.5-flash (โมเดลมาตรฐาน)
+    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -69,8 +70,8 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
     const aiData = await resAI.json();
 
     if (!resAI.ok || !aiData.candidates?.[0]?.content?.parts?.[0]?.text) {
-      console.error('Gemini API Response Error:', aiData);
-      return NextResponse.json({ error: 'Gemini API ประมวลผลไม่สำเร็จ' }, { status: 500 });
+      console.error('Gemini API Error Detail:', JSON.stringify(aiData));
+      return NextResponse.json({ error: 'Gemini API ประมวลผลไม่สำเร็จ (กรุณาเช็ก API Key หรือโควตา)' }, { status: 500 });
     }
 
     const rawText = aiData.candidates[0].content.parts[0].text;
