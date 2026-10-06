@@ -12,7 +12,7 @@ export async function POST(request) {
     // 1. ดึงข้อมูลเสื้อผ้าทั้งหมดจาก Supabase
     let items = [];
     if (supabase) {
-      const { data, error } = await supabase.from('clothes').select('*');
+      const { data, error } = await supabase.from('wardrobe_items').select('*');
       if (!error && data) {
         items = data;
       }
