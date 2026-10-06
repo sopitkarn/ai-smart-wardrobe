@@ -54,7 +54,7 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
   ]
 }`;
 
-    // ลองใช้ endpoint โมเดลมาตรฐานยุคปัจจุบัน
+    // ยิง API ไปยังโมเดลตัวใหม่ล่าสุด
     const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
