@@ -9,7 +9,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'กรุณาระบุสถานการณ์หรือโจทย์การแต่งตัว' }, { status: 400 });
     }
 
-    // 1. ดึงข้อมูลเสื้อผ้าทั้งหมดจาก Supabase (ตาราง wardrobe_items)
+    // 1. ดึงข้อมูลเสื้อผ้าจาก Supabase
     let items = [];
     if (supabase) {
       const { data, error } = await supabase.from('wardrobe_items').select('*');
@@ -22,45 +22,46 @@ export async function POST(request) {
       return NextResponse.json({ error: 'ไม่พบเสื้อผ้าในตู้ กรุณาเพิ่มเสื้อผ้าก่อนครับ' }, { status: 400 });
     }
 
-    // 2. ตรวจสอบ API Key
+    // 2. เช็ก GEMINI_API_KEY
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY ใน Vercel' }, { status: 500 });
+      return NextResponse.json({ error: 'ยังไม่ได้ใส่ GEMINI_API_KEY ใน Vercel Environment Variables' }, { status: 500 });
     }
 
     const availableItemsSummary = items.map(i => ({
       id: i.id,
-      name: i.name,
-      category: i.category,
-      color: i.color,
-      style_tags: i.style_tags,
-      suitable_weather: i.suitable_weather
+      name: i.name || 'เสื้อผ้า',
+      category: i.category || 'other',
+      color: i.color || 'ไม่ระบุ',
+      image_url: i.image_url || i.url || ''
     }));
 
     const systemPrompt = `คุณเป็น Stylist ส่วนตัว งานของคุณคือเลือกชุดแต่งตัวที่เข้ากันที่สุดจาก "รายการเสื้อผ้าที่มีจริงในตู้" ให้เข้ากับสถานการณ์ของผู้ใช้
 
 สถานการณ์/โจทย์ของผู้ใช้: "${prompt}"
 
-รายการเสื้อผ้าที่มีจริงในตู้เสื้อผ้า:
+รายการเสื้อผ้าในตู้:
 ${JSON.stringify(availableItemsSummary, null, 2)}
 
 ข้อบังคับสำคัญ:
-1. คุณต้องเลือกเสื้อผ้าโดยใช้ ID ที่มีอยู่ในรายการข้างต้นเท่านั้น
+1. เลือกเสื้อผ้าเฉพาะที่มี ID อยู่ในรายการข้างต้นเท่านั้น
 2. ตอบกลับเป็นรูปแบบ JSON เดียวเท่านั้น ไม่มีข้อความ Markdown หรือโปรแกรมอื่นปน ดังนี้:
 {
-  "top_id": 1,
-  "bottom_id": 2,
-  "shoes_id": 3,
-  "outerwear_id": null,
-  "reasoning": "เหตุผลสั้นๆ ภาษาไทยประกอบการเลือกชุด"
+  "recommendation": "คำอธิบายเหตุผลในการเลือกชุดนี้เป็นภาษาไทย",
+  "selected_items": [
+    { "id": 1, "name": "ชื่อเสื้อ", "category": "top", "image_url": "urlรูป" },
+    { "id": 2, "name": "ชื่อกางเกง", "category": "bottom", "image_url": "urlรูป" }
+  ]
 }`;
 
-    // ยิง API ไปยัง gemini-1.5-flash (โมเดลมาตรฐาน)
-    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    // ลองใช้ endpoint โมเดลมาตรฐานยุคปัจจุบัน
+    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: systemPrompt }] }],
+        contents: [{
+          parts: [{ text: systemPrompt }]
+        }],
         generationConfig: {
           responseMimeType: 'application/json'
         }
@@ -69,18 +70,23 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
 
     const aiData = await resAI.json();
 
-    if (!resAI.ok || !aiData.candidates?.[0]?.content?.parts?.[0]?.text) {
-      console.error('Gemini API Error Detail:', JSON.stringify(aiData));
-      return NextResponse.json({ error: 'Gemini API ประมวลผลไม่สำเร็จ (กรุณาเช็ก API Key หรือโควตา)' }, { status: 500 });
+    if (!resAI.ok) {
+      console.error('Gemini API Error Response:', aiData);
+      return NextResponse.json({ 
+        error: `Gemini API Error: ${aiData.error?.message || 'การเชื่อมต่อ API ไม่สำเร็จ'}` 
+      }, { status: 500 });
     }
 
-    const rawText = aiData.candidates[0].content.parts[0].text;
-    const result = JSON.parse(rawText);
+    const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) {
+      return NextResponse.json({ error: 'AI ไม่ได้ส่งข้อมูลกลับมา' }, { status: 500 });
+    }
 
+    const result = JSON.parse(rawText);
     return NextResponse.json(result);
 
   } catch (error) {
     console.error('Match outfit error:', error);
-    return NextResponse.json({ error: 'เกิดข้อผิดพลาดในการประมวลผลของ AI' }, { status: 500 });
+    return NextResponse.json({ error: 'เกิดข้อผิดพลาดในการประมวลผลของ AI: ' + error.message }, { status: 500 });
   }
 }
