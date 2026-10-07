@@ -9,11 +9,21 @@ export async function POST(request) {
       return NextResponse.json({ error: 'กรุณาระบุสถานการณ์หรือโจทย์การแต่งตัว' }, { status: 400 });
     }
 
-    // 1. ดึงข้อมูลเสื้อผ้าจาก Supabase
+    // 1. ดึงข้อมูลเสื้อผ้าจาก Supabase (ค้นหาทั้งตาราง wardrobe และ wardrobe_items)
     let items = [];
     if (supabase) {
-      const { data, error } = await supabase.from('wardrobe_items').select('*');
-      if (!error && data) {
+      // ลองดึงจากตาราง wardrobe ก่อน
+      let { data, error } = await supabase.from('wardrobe').select('*');
+      
+      // ถ้าไม่เจอ หรือเออเร่อ ให้ลองดึงจาก wardrobe_items
+      if (error || !data || data.length === 0) {
+        const res2 = await supabase.from('wardrobe_items').select('*');
+        if (!res2.error && res2.data) {
+          data = res2.data;
+        }
+      }
+
+      if (data && data.length > 0) {
         items = data;
       }
     }
@@ -30,10 +40,10 @@ export async function POST(request) {
 
     const availableItemsSummary = items.map(i => ({
       id: i.id,
-      name: i.name || 'เสื้อผ้า',
+      name: i.name || i.title || 'เสื้อผ้า',
       category: i.category || 'other',
       color: i.color || 'ไม่ระบุ',
-      image_url: i.image_url || i.url || ''
+      image_url: i.image_url || i.url || i.image || ''
     }));
 
     const systemPrompt = `คุณเป็น Stylist ส่วนตัว งานของคุณคือเลือกชุดแต่งตัวที่เข้ากันที่สุดจาก "รายการเสื้อผ้าที่มีจริงในตู้" ให้เข้ากับสถานการณ์ของผู้ใช้
@@ -54,8 +64,8 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
   ]
 }`;
 
-    // ส่งคำขอไปยัง Gemini 3.8 Flash
-    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
+    // ยิง API เรียกโมเดล Gemini
+    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
