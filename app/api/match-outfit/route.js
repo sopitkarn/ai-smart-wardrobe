@@ -9,13 +9,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'กรุณาระบุสถานการณ์หรือโจทย์การแต่งตัว' }, { status: 400 });
     }
 
-    // 1. ดึงข้อมูลเสื้อผ้าจาก Supabase (ค้นหาทั้งตาราง wardrobe และ wardrobe_items)
+    // 1. ดึงข้อมูลเสื้อผ้าจาก Supabase (ค้นหาทั้งตาราง wardrobe และ wardrobe_items เพื่อป้องกันชื่อตารางไม่ตรง)
     let items = [];
     if (supabase) {
-      // ลองดึงจากตาราง wardrobe ก่อน
       let { data, error } = await supabase.from('wardrobe').select('*');
       
-      // ถ้าไม่เจอ หรือเออเร่อ ให้ลองดึงจาก wardrobe_items
       if (error || !data || data.length === 0) {
         const res2 = await supabase.from('wardrobe_items').select('*');
         if (!res2.error && res2.data) {
@@ -32,7 +30,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'ไม่พบเสื้อผ้าในตู้ กรุณาเพิ่มเสื้อผ้าก่อนครับ' }, { status: 400 });
     }
 
-    // 2. เช็ก API Key
+    // 2. ตรวจสอบ API Key
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: 'ยังไม่ได้ระบุ GEMINI_API_KEY ใน Vercel Environment Variables' }, { status: 500 });
@@ -64,34 +62,41 @@ ${JSON.stringify(availableItemsSummary, null, 2)}
   ]
 }`;
 
-    // ยิง API เรียกโมเดล Gemini
-    const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: systemPrompt }]
-        }],
-        generationConfig: {
-          responseMimeType: 'application/json'
+    // 3. ฟังก์ชันเรียกใช้ Gemini API พร้อมระบบ Fallback เปลี่ยนชื่อโมเดลให้อัตโนมัติถ้าเจอปัญหา
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-1.5-flash'];
+    let aiData = null;
+    let lastErrorMessage = '';
+
+    for (const model of modelsToTry) {
+      try {
+        const resAI = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: systemPrompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        });
+
+        const data = await resAI.json();
+        if (resAI.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          aiData = data;
+          break; // สำเร็จแล้วออกจากลูป
+        } else {
+          lastErrorMessage = data.error?.message || 'ข้อผิดพลาดไม่ทราบสาเหตุ';
         }
-      })
-    });
+      } catch (err) {
+        lastErrorMessage = err.message;
+      }
+    }
 
-    const aiData = await resAI.json();
-
-    if (!resAI.ok) {
-      console.error('Gemini API Error Response:', aiData);
+    if (!aiData) {
       return NextResponse.json({ 
-        error: `Gemini API Error: ${aiData.error?.message || 'การเชื่อมต่อ API ไม่สำเร็จ'}` 
+        error: `Gemini API Error: ${lastErrorMessage}` 
       }, { status: 500 });
     }
 
-    const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      return NextResponse.json({ error: 'AI ไม่ได้ส่งข้อมูลตอบกลับมา' }, { status: 500 });
-    }
-
+    const rawText = aiData.candidates[0].content.parts[0].text;
     const result = JSON.parse(rawText);
     return NextResponse.json(result);
 
